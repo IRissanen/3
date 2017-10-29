@@ -9,7 +9,7 @@ func init() {
 	DeclFunc("ext_centerBubble", CenterBubble, "centerBubble shifts m after each step to keep the bubble position close to the center of the window")
 }
 
-func centerBubble() {
+func centerBubble(x, y int) {
 	M := &M
 	n := Mesh().Size()
 
@@ -56,16 +56,16 @@ func centerBubble() {
 	dy := int(math.Floor(float64(n[Y]/2) - posy))
 
 	//put bubble to center
-	if dx != 0 {
+	if dx != 0 && x == 1 {
 		Shift(dx)
 	}
-	if dy != 0 {
+	if dy != 0 && y == 1 {
 		YShift(dy)
 	}
 
 }
 
 // This post-step function centers the simulation window on a bubble
-func CenterBubble() {
-	PostStep(func() { centerBubble() })
+func CenterBubble(x, y int) {
+	PostStep(func() { centerBubble(x, y) })
 }

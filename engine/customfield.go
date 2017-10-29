@@ -35,7 +35,6 @@ func init() {
 	DeclFunc("RemoveCustomFields", RemoveCustomFields, "Removes all custom fields again")
 }
 
-
 func RemoveCustomFields() {
 	customTerms = nil
 }
