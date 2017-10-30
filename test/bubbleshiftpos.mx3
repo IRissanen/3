@@ -29,7 +29,7 @@ minimize()
 setsolver(5)
 maxerr=0.001
 
-ext_centerbubble(1,1)
+ext_centerbubble(1,1,1)
 
 Xi=0.2
 j=vector(5e12*cos(2*pi*1e9*t),5e12*sin(2*pi*1e9*t),0)
