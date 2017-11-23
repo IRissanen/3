@@ -70,10 +70,11 @@ func main() {
 
 	// Listen and serve on all interfaces
 	go func() {
+
 		log.Println("serving at", thisAddr)
 
 		// Resolve the IPs for thisHost
-		thisIP, err := net.LookupHost(thisHost)
+		//thisIP, err := net.LookupHost(thisHost)
 		Fatal(err)
 
 		// try to listen and serve on all interfaces other than thisAddr
@@ -83,15 +84,15 @@ func main() {
 		ips := util.InterfaceAddrs()
 		for _, ip := range ips {
 			addr := net.JoinHostPort(ip, p)
-			if !contains(thisIP, ip) { // skip thisIP, will start later and is fatal on error
-				go func() {
-					log.Println("serving at", addr)
-					err := http.ListenAndServe(addr, nil)
-					if err != nil {
-						log.Println("info:", err, "(but still serving other interfaces)")
-					}
-				}()
-			}
+			//if !contains(thisIP, ip) { // skip thisIP, will start later and is fatal on error
+			go func() {
+				log.Println("serving at", addr)
+				err := http.ListenAndServe(addr, nil)
+				if err != nil {
+					log.Println("info:", err, "(but still serving other interfaces)")
+				}
+			}()
+			//}
 		}
 
 		// only on thisAddr, this server's unique address,
@@ -99,7 +100,8 @@ func main() {
 		Fatal(http.ListenAndServe(thisAddr, nil))
 	}()
 
-	ProbePeer(thisAddr) // make sure we have ourself as peer
+	//ProbePeer(thisAddr) // make sure we have ourself as peer
+	AddPeer(thisAddr) // make sure we have ourself as peer
 	go FindPeers(IPs, MinPort, MaxPort)
 	go RunComputeService()
 	go LoopWatchdog()

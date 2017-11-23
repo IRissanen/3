@@ -24,6 +24,7 @@ func init() {
 	DeclFunc("Add", Add, "Add two quantities")
 	DeclFunc("Madd", Madd, "Weighted addition: Madd(Q1,Q2,c1,c2) = c1*Q1 + c2*Q2")
 	DeclFunc("Dot", Dot, "Dot product of two vector quantities")
+	DeclFunc("Avg", Avg, "average of a quantity")
 	DeclFunc("Cross", Cross, "Cross product of two vector quantities")
 	DeclFunc("Mul", Mul, "Point-wise product of two quantities")
 	DeclFunc("MulMV", MulMV, "Matrix-Vector product: MulMV(AX, AY, AZ, m) = (AX·m, AY·m, AZ·m)")
@@ -179,6 +180,10 @@ func (q *mulmv) NComp() int {
 // 	DotProct(&M, &B_ext)
 func Dot(a, b Quantity) Quantity {
 	return &dotProduct{fieldOp{a, b, 1}}
+}
+
+func Avg(a Quantity) []float64 {
+	return AverageOf(a)
 }
 
 func (d *dotProduct) EvalTo(dst *data.Slice) {

@@ -41,7 +41,6 @@ func (p *Process) Host() string {
 // The compute service asks storage nodes for a job, runs it,
 // saves results over httpfs and notifies storage when ready.
 func RunComputeService() {
-
 	if len(GPUs) == 0 {
 		return
 	}
@@ -88,6 +87,7 @@ func RunComputeService() {
 }
 
 func WaitForJob() string {
+
 	ID := FindJob()
 	for ID == "" {
 		time.Sleep(2 * time.Second) // TODO: don't poll
