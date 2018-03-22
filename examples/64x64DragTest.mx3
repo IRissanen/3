@@ -1,0 +1,64 @@
+xSizeCells := 64
+ySizeCells := 64
+zSizeCells := 18
+
+xCellSize := 4.0e-9
+yCellSize := 4.0e-9
+zCellSize := 4.0e-9
+
+SetPBC(1, 1, 0) //Periodic in the XY-plane
+SetGridsize(xSizeCells, ySizeCells, zSizeCells)
+SetCellsize(xCellSize, yCellSize, zCellSize)
+
+//CoCrPt
+Msat = 350.0e3
+Aex = 5.00e-12
+alpha = 0.05
+anisU = vector(0,0,1)
+Ku1 = 1.225e5
+
+tableAdd(E_total)
+tableAdd(E_exch)
+tableAdd(E_demag)
+tableAdd(E_anis)
+tableAdd(E_Zeeman)
+tableAdd(P_d)
+tableAdd(F_m)
+tableAdd(F_spring)
+tableAdd(MD_Base)
+tableAdd(MD_Slider)
+tableAdd(D_l)
+tableAdd(S_l)
+tableAdd(S_s)
+
+Base := cuboid(xSizeCells*xCellSize,ySizeCells*yCellSize,5*zCellSize).transl(0,0,-5*zCellSize) //some distance between the films
+Slider := cuboid(xSizeCells*xCellSize, ySizeCells*yCellSize, 5*zCellSize).transl(0,0,5*zCellSize)
+
+setGeom(Base.add(Slider))
+
+DefineMovingGeom(Base, 0)
+DefineMovingGeom(Slider, 1)
+
+grainSize  := 20e-9  // m
+randomSeed := 0
+maxRegion  := 255
+
+//Voronoi tessellation
+ext_makegrains(grainSize, maxRegion, randomSeed)
+for i:=0; i<maxRegion; i++{
+	randVec := vector(randNorm() * 0.20,randNorm() * 0.20,1)
+	randVec = randVec.Div(randVec.Len())
+	anisU.SetRegion(i, randVec)
+}
+save(regions)
+m.LoadFile("./64x64Stripes.ovf") //relaxed beforehand
+
+SetSpringConstants(0.005,0,0)
+SetMass(1e-20)
+SetVelocityDragConstant(2*sqrt(0.005/1e-20))
+initMove(1) //Componentwise interpolation
+autosave(m,5e-10)
+tableautosave(1e-10)
+StartDragging(Vector(2,0,0), Vector(0,0,0), true, true, false, false)
+run(100e-9)
+save(m)

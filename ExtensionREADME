@@ -1,0 +1,18 @@
+Extension code files in package "engine": extI_Move.go, extI_Eddy.go and extI_ScalarPotential.go
+Extension code files in package "cuda": ext_demag_interp.go, ext_cuda_functions.go and ext_scalar_pot+eddy.go
+
+Additionally, for the cuda kernels compiled with cuda2go, there's a separate directory "cuda/ext_kernels",
+and the interpolation library and the related files are in directory "cuda/ext_move_interp".
+
+Few example scripts are provided in "3/examples" directory.
+
+Some notes:
+
+Compiling the interpolation library can be done via two provided scripts, "LinuxCompile.sh" for Linux and
+"wincompile.bat" for Windows. For Windows updating the path for Visual studio compiler is required.
+
+Since the interpolation library is not in the typical cuda directories, its include and library paths must
+be added into the "cgoflags.go" file in Ext_move_cuinterp in order to compile the source.
+
+Additionally, the path for loading the dynamic library must be in the LD_LIBRARY_PATH for linux machines.
+On windows, putting the DLL in the same directory as the binary is sufficient.

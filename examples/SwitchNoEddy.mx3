@@ -1,0 +1,50 @@
+xSizeCells := 16
+ySizeCells := 16
+zSizeCells := 16
+xCellSize := 2.5e-9
+yCellSize := 2.5e-9
+zCellSize := 2.5e-9
+
+SetPBC(0, 0, 0)
+SetGridsize(xSizeCells, ySizeCells, zSizeCells)
+SetCellsize(xCellSize, yCellSize, zCellSize)
+
+sliderSizesCell := vector(16,16,16)
+sliderOriginCell := vector(0,0,0)
+
+Slider := cuboid(sliderSizesCell[0]*xCellSize, sliderSizesCell[1]*yCellSize, sliderSizesCell[2]*zCellSize).transl((-xSizeCells/2+sliderOriginCell[0]+sliderSizesCell[0]/2)*xCellSize,(-ySizeCells/2+sliderOriginCell[1]+sliderSizesCell[1]/2)*yCellSize,(-zSizeCells/2+sliderOriginCell[2]+sliderSizesCell[2]/2)*zCellSize)
+
+
+
+setGeom(Slider)
+
+//Permalloy
+Msat  = 860.0e3
+Aex   = 13.0e-12
+alpha = 0.01
+
+tableAdd(E_total)
+tableAdd(E_exch)
+tableAdd(E_demag)
+tableAdd(E_anis)
+tableAdd(E_therm)
+tableAdd(E_eddy)
+tableAdd(E_Zeeman)
+
+randSeed(0)
+
+m.LoadFile("./Flower.ovf")
+
+
+autosave(m, 1e-11)
+tableautosave(1e-11)
+FixDt = 1e-15
+SetSolver(1)
+run(1e-12)
+
+A := -0.1 //Tesla
+timeToMax := 1.0e-10 //seconds
+t0 := t
+B_ext = Vector(0,0,Max(A*(t-t0)/timeToMax,A))
+run(1.5e-9)
+
