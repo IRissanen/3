@@ -1,0 +1,1 @@
+g++ -shared -o interpolationKernel.dll -L"C:\cuda\v6.5\lib\x64" -L"C:\cuda\sdk\C\common\lib" interpolationKernel.o -lcutil64 -lcudart 
