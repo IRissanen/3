@@ -1,6 +1,6 @@
 package cu
 
-// This file provides CGO flags to find CUDA libraries and headers.
+// This file provide CGO flags to find CUDA libraries and headers.
 
 //#cgo LDFLAGS:-lcuda
 //
@@ -25,6 +25,6 @@ package cu
 //#cgo CFLAGS: -I/opt/cuda/include
 //
 ////WINDOWS:
-//#cgo windows LDFLAGS:-LC:/cuda/lib/x64
-//#cgo windows CFLAGS: -IC:/cuda/include
+//#cgo windows LDFLAGS:-LC:/cuda/lib/x64 -LC:/cuda8/lib/x64 
+//#cgo windows CFLAGS: -IC:/cuda/include -IC:/cuda8/include
 import "C"

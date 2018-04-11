@@ -25,6 +25,6 @@ package curand
 //#cgo CFLAGS: -I/opt/cuda/include
 //
 ////WINDOWS:
-//#cgo windows LDFLAGS:-LC:/cuda/lib/x64
-//#cgo windows CFLAGS: -IC:/cuda/include -w
+//#cgo windows LDFLAGS:-LC:/cuda/lib/x64 -LC:/cuda8/lib/x64
+//#cgo windows CFLAGS: -IC:/cuda/include -IC:/cuda8/include -w
 import "C"

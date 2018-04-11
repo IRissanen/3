@@ -19,9 +19,11 @@ Ku1 = 1.225e5
 
 tableAdd(E_total)
 tableAdd(E_exch)
-tableAdd(E_demag)
+tableAdd(E_demagExt)
 tableAdd(E_anis)
 tableAdd(E_Zeeman)
+tableAdd(E_kin)
+tableAdd(E_spring)
 tableAdd(P_d)
 tableAdd(F_m)
 tableAdd(F_spring)

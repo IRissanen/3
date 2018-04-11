@@ -12,7 +12,7 @@ Compiling the interpolation library can be done via two provided scripts, "Linux
 "wincompile.bat" for Windows. For Windows updating the path for Visual studio compiler is required.
 
 Since the interpolation library is not in the typical cuda directories, its include and library paths must
-be added into the "cgoflags.go" file in Ext_move_cuinterp in order to compile the source.
+be added into the "cgoflags.go" file in directory Ext_move_cuinterp in order to compile the source.
 
 Additionally, the path for loading the dynamic library must be in the LD_LIBRARY_PATH for linux machines.
 On windows, putting the DLL in the same directory as the binary is sufficient.

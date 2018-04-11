@@ -31,20 +31,26 @@ var (
 	printDebugs					= false		 //Print some additional debug information
 	invertedMovement				= false	     //NOT IMPLEMENTED YET (at least not properly, never tested)
 	interpBaseDemagField				*data.Slice 
-	interpTotalDemagField				*data.Slice 			 
+	extTotalDemagField				*data.Slice 
+	totalExtField				*data.Slice 			 
 	cumulativeMagChange				*data.Slice //used when calculating magnetization change in slider and base
 	magDifferenceBase				= NewScalarValue("MD_Base", "%", "Base magnetization change", SaveBaseMDiff)
 	magDifferenceSlider			  	= NewScalarValue("MD_Slider", "%", "Slider magnetization change", SaveSliderMDiff)
 	dissipatedPower 				= NewScalarValue("P_d", "W", "Dissipated power due to magnetic moment relaxation", SaveDissipatedPower)
+	sliderKineticEnergy				= NewScalarValue("E_kin", "%", "Kinetic energy of the slider", SaveEKin)
+	springPotentialEnergy			  	= NewScalarValue("E_spring", "%", "Spring potential energy", SaveSpringEnergy)
 	DraggerLocationValue 				= NewVectorValue("D_l", "m", "Dragger location", SaveDraggerLocation)
 	SliderLocationValue 				= NewVectorValue("S_l", "m", "Slider location", SaveSliderLocation)
 	SliderSpeedValue 				= NewVectorValue("S_s", "m/s", "Slider speed", SaveSliderSpeed)
 	springForce 					= NewVectorValue("F_spring", "N", "Spring force", SaveSpringForce)
 	magneticForce 					= NewVectorValue("F_m", "N", "Magnetic force the base exerts on the slider", SaveMagneticForce)
 	B_ib 						= NewVectorField("B_ib", "T", "base interpolated magnetostatic field", SaveBaseField) //used primarily for interpolation debugging
-	B_shifted     					= NewVectorField("B_shifted", "T", "interpolated total magnetostatic field", getInterpolatedField)
+	B_demagExt     					= NewVectorField("B_demagExt", "T", "magnetostatic field with extended solver", getInterpolatedField)
+	B_totalExt   					= NewVectorField("B_totalExt", "T", "totat magnetic field with extended solver", getExtField)
 	TotalDivergence 				= NewScalarValue("D", "-", "Divergence of magnetic field", CalculateDivergences)
 	TotalCurl 					= NewScalarValue("C", "-", "Curl of magnetic field", CalculateCurls)
+	Edens_demagExt = NewScalarField("Edens_demagExt", "J/m3", "Magnetostatic energy density", AddEdens_demagExt)
+	E_demagExt     = NewScalarValue("E_demagExt", "J", "Magnetostatic energy", GetDemagEnergyExt)
 )
 
 func init() {
@@ -69,14 +75,18 @@ func init() {
 
 func initMove(scheme int) {
 	interpBaseDemagField = data.NewSlice(3, globalmesh_.Size())
-	interpTotalDemagField = data.NewSlice(3, globalmesh_.Size())
+	extTotalDemagField = data.NewSlice(3, globalmesh_.Size())
+	totalExtField = data.NewSlice(3, globalmesh_.Size())
 	B_arbitrary = data.NewSlice(3, globalmesh_.Size())
 	cumulativeMagChange = cuda.NewSlice(1, globalmesh_.Size())
-	registerEnergy(Ext_move_GetDemagEnergy, AddEdens_demag)
-	registerEnergy(Ext_move_removeOldDemagEnergy, AddEdens_demag) //TODO: just remove the original energy term from the list instead of this hack
+	registerEnergy(GetDemagEnergyExt, AddEdens_demagExt)
+	registerEnergy(Ext_move_removeOldDemagEnergy, removeOldEdens_demag) //TODO: just remove the original energy term from the list instead of this hack
 	SetExtendedSolver(8) //Default to extended RK45DP
 	SetMovementScheme(scheme) //0 - Discrete movement, 1 - Componentwise interpolated field, 2 - Scalar potential method + Interpolation
 }
+
+var removeOldEdens_demag = makeEdensAdder(&B_demag, 0.5)
+var AddEdens_demagExt = makeEdensAdder(&B_demagExt, -0.5)
 
 const (
 	EXT_EULER  = 7
@@ -242,7 +252,6 @@ func step_move(output bool) {
 		DoOutput()
 	}
 	stop := time.Since(start)
-	util.Log(stop)
 	if(printDebugs) {
 	util.Log(stop)
 	fmt.Println("Dragger location: ", draggerLocation)
@@ -252,7 +261,7 @@ func step_move(output bool) {
 	fmt.Println("Spring force: ", CalculateSpringForce(draggerLocation, sliderLocation))
 	fmt.Println("Slider speed: ", sliderSpeed)
 	fmt.Println("Timestep: ", Dt_si)
-	fmt.Println("Max demag field strength", cuda.MaxVecNorm(interpTotalDemagField))
+	fmt.Println("Max demag field strength", cuda.MaxVecNorm(extTotalDemagField))
 	fmt.Println("Max eddy field strength", cuda.MaxVecNorm(B_eddy))
 	fmt.Println(LastTorque)
 	fmt.Println("average divergence: ", CalculateDivergences())
@@ -280,7 +289,11 @@ func SetLLTorqueExtended(dst, prev *data.Slice, moved data.Vector, dte float64) 
 }
 
 func getInterpolatedField(dst *data.Slice) { //field is updated every step, so we just copy the latest. TODO: Find out if this is not a good idea.
-	data.Copy(dst, interpTotalDemagField)
+	data.Copy(dst, extTotalDemagField)
+}
+
+func getExtField(dst *data.Slice) { //field is updated every step, so we just copy the latest. TODO: Find out if this is not a good idea.
+	data.Copy(dst, totalExtField)
 }
 
 func updateCumulativeMagnetizationChange(m0, m *data.Slice) {
@@ -495,6 +508,15 @@ func SaveMagneticForce() []float64{
 
 func SaveDissipatedPower() float64{ //Interface function, not sure if I need to have this and CalculateDissipatedPower separately.
 	return CalculateDissipatedPower()
+}
+
+func SaveEKin() float64{ 
+	return 0.5*sliderMass*(sliderSpeed.Dot(sliderSpeed))
+}
+
+func SaveSpringEnergy() float64{ 
+	distancesSquared := EleMul(GetSpringDistance(draggerLocation, sliderLocation), GetSpringDistance(draggerLocation, sliderLocation))
+	return 0.5*draggerSpringConstants.Dot(distancesSquared)
 }
 
 ////////////////////////////////////////////////////////////////////////// Solvers //////////////////////////////////////////////////////////////////////////////////
@@ -815,22 +837,20 @@ func SetDemagFieldWithMovement(dst *data.Slice, moved data.Vector) {
 			data.Copy(interpBaseDemagField, B_demagBase)
 		}
 		SetDemagField(dst)    // set to full B_demag, i.e. both base and slider fields taken into account.
-		data.Copy(interpTotalDemagField,dst) //Not actually interpolated in the 0 movementscheme.
+		data.Copy(extTotalDemagField,dst) //Not actually interpolated in the 0 movementscheme.
 		return
 	}
 	
 	if (movementScheme == 1) {
 		if(baseDefined == true) {
-			//SetDemagFieldExcludeGen(B_demagBase, sliderGeomi, 0) //take the base field only so it can be used in calculations.
 			SetDemagFieldExcludeInterp(B_demagBase, normalizedMoved[X], normalizedMoved[Y], normalizedMoved[Z], sliderGeomi, 0)
-			data.Copy(interpBaseDemagField, B_demagBase)
+			data.Copy(interpBaseDemagField, B_demagBase)  //save the base field so it can be used in calculations.
 		}
 		if(sliderDefined == true) {
-			//SetDemagFieldExcludeGen(B_demagSlider, sliderGeomi, 1) //take the base field only so it can be used in calculations.
 			SetDemagFieldExcludeInterp(B_demagSlider, -normalizedMoved[X], -normalizedMoved[Y], -normalizedMoved[Z], sliderGeomi, 1)
 		}
 		cuda.Madd2(dst, B_demagSlider, B_demagBase, 1.0, 1.0)
-		data.Copy(interpTotalDemagField, dst)
+		data.Copy(extTotalDemagField, dst)
 		return
 	}
 
@@ -845,7 +865,7 @@ func SetDemagFieldWithMovement(dst *data.Slice, moved data.Vector) {
 			SetDemagFieldWithScalarPotential(B_demagSlider, -normalizedMoved[X], -normalizedMoved[Y], -normalizedMoved[Z], sliderGeomi, 1)	
 		}
 		cuda.Madd2(dst, B_demagSlider, B_demagBase, 1.0, 1.0)
-		data.Copy(interpTotalDemagField, dst)
+		data.Copy(extTotalDemagField, dst)
 		return
 	}
 	return
@@ -868,6 +888,7 @@ func SetEffectiveFieldExtended(dst, m *data.Slice, moved data.Vector, dte float6
 	if !relaxing {
 		B_therm.AddTo(dst)
 	}
+	data.Copy(totalExtField, dst)
 }
 
 //Parts of demag.go with changes and additions. Also an older version which still uses Bsat. TODO: update.
@@ -1017,7 +1038,7 @@ func Ext_move_removeOldDemagEnergy() float64 {
 }
 
 // Returns the current demag energy in Joules with the interpolated field.
-func Ext_move_GetDemagEnergy() float64 {
+func GetDemagEnergyExt() float64 {
 	var size [3]int = globalmesh_.Size()
 	m_Slice := cuda.Buffer(3, size)
 	defer cuda.Recycle(m_Slice)
@@ -1025,7 +1046,7 @@ func Ext_move_GetDemagEnergy() float64 {
 
 	B := cuda.Buffer(3, size)
 	defer cuda.Recycle(B)
-	data.Copy(B,interpTotalDemagField)
+	data.Copy(B,extTotalDemagField)
 
 	return -0.5 * float64(cellVolume()) * float64(cuda.Dot(m_Slice, B))
 }

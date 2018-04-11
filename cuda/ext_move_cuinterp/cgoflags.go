@@ -25,6 +25,6 @@ package ext_move_cuinterp
 //#cgo CFLAGS: -I/opt/cuda/include
 //
 ////WINDOWS:
-//#cgo windows LDFLAGS:-LC:/cuda/v5.0/lib/x64 -LC:/cuda/v5.5/lib/x64 -LC:/cuda/v6.0/lib/x64 -LC:/cuda/v6.5/lib/x64 -LC:/cuda/v7.0/lib/x64 -LC:/Users/Ilari/Desktop/Jatko-opinnot/GoMumax/src/github.com/mumax/3/cuda/cuinterp
-//#cgo windows CFLAGS: -IC:/cuda/v5.0/include -IC:/cuda/v5.5/include -IC:/cuda/v6.0/include -IC:/cuda/v6.5/include -IC:/cuda/v7.0/include -IC:/cuda/sdk/C/common/inc -IC:/Users/Ilari/Desktop/Jatko-opinnot/GoMumax/src/github.com/mumax/3/cuda/cuinterp -w
+//#cgo windows LDFLAGS:-LC:/cuda/v5.0/lib/x64 -LC:/cuda/v5.5/lib/x64 -LC:/cuda/v6.0/lib/x64 -LC:/cuda/v6.5/lib/x64 -LC:/cuda8/lib/x64 -LC:/cuda/v7.0/lib/x64 -LC:/Users/Ilari/Desktop/Jatko-opinnot/MumaxRefactor/src/github.com/mumax/3/cuda/ext_move_cuinterp
+//#cgo windows CFLAGS: -IC:/cuda/v5.0/include -IC:/cuda/v5.5/include -IC:/cuda/v6.0/include -IC:/cuda/v6.5/include -IC:/cuda/v7.0/include -IC:/cuda8/include -IC:/cuda/sdk/C/common/inc -IC:/Users/Ilari/Desktop/Jatko-opinnot/MumaxRefactor/src/github.com/mumax/3/cuda/ext_move_cuinterp -w
 import "C"

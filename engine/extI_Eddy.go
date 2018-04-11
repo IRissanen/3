@@ -52,7 +52,7 @@ func InitEddy(m, ext, demag bool) {
 	E_irrotPot = cuda.NewSlice(1, size)
 	B_eddyGeneratingField = cuda.NewSlice(3, size)
 	cumulativeMagChange = cuda.NewSlice(1, globalmesh_.Size())
-	interpTotalDemagField = cuda.NewSlice(3, globalmesh_.Size())
+	extTotalDemagField = cuda.NewSlice(3, globalmesh_.Size())
 
 	for c := 0; c < 3; c++ {
 		cuda.Zero1_async(B_eddyGeneratingField.Comp(c))
