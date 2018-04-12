@@ -1,12 +1,12 @@
 package cu
 
-// This file provide CGO flags to find CUDA libraries and headers.
+// This file provides CGO flags to find CUDA libraries and headers.
 
 //#cgo LDFLAGS:-lcuda
 //
 ////default location:
-//#cgo LDFLAGS:-L/usr/local/cuda/lib64 -L/usr/local/cuda/lib
-//#cgo CFLAGS: -I/usr/local/cuda/include/
+//#cgo LDFLAGS:-L/usr/local/cuda/lib64 -L/work/modules/Ubuntu/14.04/amd64/t304/cuda/7.5.18/lib64
+//#cgo CFLAGS: -I/usr/local/cuda/include/ -I/work/modules/Ubuntu/14.04/amd64/t304/cuda/7.5.18/include
 //
 ////default location if not properly symlinked:
 //#cgo LDFLAGS:-L/usr/local/cuda-6.0/lib64 -L/usr/local/cuda-6.0/lib
@@ -25,6 +25,6 @@ package cu
 //#cgo CFLAGS: -I/opt/cuda/include
 //
 ////WINDOWS:
-//#cgo windows LDFLAGS:-LC:/cuda/lib/x64 -LC:/cuda8/lib/x64 
-//#cgo windows CFLAGS: -IC:/cuda/include -IC:/cuda8/include
+//#cgo windows LDFLAGS:-LC:/cuda/v5.0/lib/x64 -LC:/cuda/v5.5/lib/x64 -LC:/cuda/v6.0/lib/x64 -LC:/cuda/v6.5/lib/x64 -LC:/cuda/v7.0/lib/x64
+//#cgo windows CFLAGS: -IC:/cuda/v5.0/include -IC:/cuda/v5.5/include -IC:/cuda/v6.0/include -IC:/cuda/v6.5/include -IC:/cuda/v7.0/include
 import "C"
