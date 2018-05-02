@@ -344,6 +344,7 @@ func CalculateMagneticForce() [3]float64{
 	} else {
 		data.Copy(B_effSlice, interpBaseDemagField)
 	}
+	B_ext.AddTo(B_effSlice)
 	sliderGeomi, cycle := sliderGeom.Slice()
 	if(cycle) {
 		defer cuda.Recycle(sliderGeomi)
