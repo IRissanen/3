@@ -5,6 +5,7 @@ import (
 	"github.com/mumax/3/cuda"
 	"github.com/mumax/3/data"
 	"github.com/mumax/3/util"
+	"github.com/mumax/3/cuda/ext_move_cuinterp"
 	"time"
 	"math"
 )
@@ -32,6 +33,7 @@ var (
 	invertedMovement				= false	     //NOT IMPLEMENTED YET (at least not properly, never tested)
 	interpBaseDemagField				*data.Slice 
 	extTotalDemagField				*data.Slice 
+	extZeemanField				*data.Slice 
 	totalExtField				*data.Slice 			 
 	cumulativeMagChange				*data.Slice //used when calculating magnetization change in slider and base
 	magDifferenceBase				= NewScalarValue("MD_Base", "%", "Base magnetization change", SaveBaseMDiff)
@@ -45,12 +47,15 @@ var (
 	springForce 					= NewVectorValue("F_spring", "N", "Spring force", SaveSpringForce)
 	magneticForce 					= NewVectorValue("F_m", "N", "Magnetic force the base exerts on the slider", SaveMagneticForce)
 	B_ib 						= NewVectorField("B_ib", "T", "base interpolated magnetostatic field", SaveBaseField) //used primarily for interpolation debugging
-	B_demagExt     					= NewVectorField("B_demagExt", "T", "magnetostatic field with extended solver", getInterpolatedField)
+	B_demagExt     					= NewVectorField("B_demagExt", "T", "magnetostatic field with extended solver", getInterpolatedDemagField)
+	B_zeemanExt     					= NewVectorField("B_zeemanExt", "T", "External field with extended solver", getInterpolatedZeemanField)
 	B_totalExt   					= NewVectorField("B_totalExt", "T", "totat magnetic field with extended solver", getExtField)
 	TotalDivergence 				= NewScalarValue("D", "-", "Divergence of magnetic field", CalculateDivergences)
 	TotalCurl 					= NewScalarValue("C", "-", "Curl of magnetic field", CalculateCurls)
 	Edens_demagExt = NewScalarField("Edens_demagExt", "J/m3", "Magnetostatic energy density", AddEdens_demagExt)
 	E_demagExt     = NewScalarValue("E_demagExt", "J", "Magnetostatic energy", GetDemagEnergyExt)
+	Edens_zeemanExt = NewScalarField("Edens_zeemanExt", "J/m3", "Zeeman energy density", AddEdens_zeemanExt)
+	E_zeemanExt     = NewScalarValue("E_zeemanExt", "J", "Zeeman energy", GetZeemanEnergyExt)
 )
 
 func init() {
@@ -77,16 +82,23 @@ func initMove(scheme int) {
 	interpBaseDemagField = data.NewSlice(3, globalmesh_.Size())
 	extTotalDemagField = data.NewSlice(3, globalmesh_.Size())
 	totalExtField = data.NewSlice(3, globalmesh_.Size())
+	extZeemanField = data.NewSlice(3, globalmesh_.Size())
 	B_arbitrary = data.NewSlice(3, globalmesh_.Size())
 	cumulativeMagChange = cuda.NewSlice(1, globalmesh_.Size())
 	registerEnergy(GetDemagEnergyExt, AddEdens_demagExt)
 	registerEnergy(Ext_move_removeOldDemagEnergy, removeOldEdens_demag) //TODO: just remove the original energy term from the list instead of this hack
+	registerEnergy(GetZeemanEnergyExt, AddEdens_zeemanExt)
+	registerEnergy(Ext_move_removeOldZeemanEnergy, removeOldEdens_zeeman) //TODO: just remove the original energy term from the list instead of this hack
+
 	SetExtendedSolver(8) //Default to extended RK45DP
 	SetMovementScheme(scheme) //0 - Discrete movement, 1 - Componentwise interpolated field, 2 - Scalar potential method + Interpolation
 }
 
 var removeOldEdens_demag = makeEdensAdder(&B_demag, 0.5)
 var AddEdens_demagExt = makeEdensAdder(&B_demagExt, -0.5)
+
+var removeOldEdens_zeeman = makeEdensAdder(B_ext, 1.0)
+var AddEdens_zeemanExt = makeEdensAdder(&B_zeemanExt, -1.0)
 
 const (
 	EXT_EULER  = 7
@@ -288,8 +300,12 @@ func SetLLTorqueExtended(dst, prev *data.Slice, moved data.Vector, dte float64) 
 	}
 }
 
-func getInterpolatedField(dst *data.Slice) { //field is updated every step, so we just copy the latest. TODO: Find out if this is not a good idea.
+func getInterpolatedDemagField(dst *data.Slice) { //field is updated every step, so we just copy the latest. TODO: Find out if this is not a good idea.
 	data.Copy(dst, extTotalDemagField)
+}
+
+func getInterpolatedZeemanField(dst *data.Slice) { //field is updated every step, so we just copy the latest.
+	data.Copy(dst, extZeemanField)
 }
 
 func getExtField(dst *data.Slice) { //field is updated every step, so we just copy the latest. TODO: Find out if this is not a good idea.
@@ -806,11 +822,11 @@ func SetDemagFieldWithMovement(dst *data.Slice, moved data.Vector) {
 		cuda.Zero1_async(dst.Comp(c))
 	}
 
-	if(movementScheme == -1){ //just normal demag field calculation in the case we're not using any movement functions
-		SetDemagField(dst)
+	if(movementScheme == -1 || !(sliderDefined == true && baseDefined == true)){ //just normal demag field calculation in the case we're not using any movement functions
+		SetDemagField(dst)														 //or if there are no separate base and slider (no relative movement)
+		data.Copy(extTotalDemagField,dst)												
 		return
 	}
-
 
 	normalizedMoved := EleDiv(EleMod(moved, globalmesh_.CellSize()),globalmesh_.CellSize()) //Movement between cells, normalized to 0..1
 	sliderGeomi, cycleSlider := sliderGeom.Slice()
@@ -833,43 +849,70 @@ func SetDemagFieldWithMovement(dst *data.Slice, moved data.Vector) {
 	}
 
 	if(movementScheme == 0){
-		if(sliderDefined == true) {
-			SetDemagFieldExcludeGen(B_demagBase, sliderGeomi, 0) //take the base field only so it can be used in calculations.
-			data.Copy(interpBaseDemagField, B_demagBase)
-		}
+		SetDemagFieldExcludeGen(B_demagBase, sliderGeomi, 0) //take the base field only so it can be used in calculations.
+		data.Copy(interpBaseDemagField, B_demagBase)
+		
 		SetDemagField(dst)    // set to full B_demag, i.e. both base and slider fields taken into account.
 		data.Copy(extTotalDemagField,dst) //Not actually interpolated in the 0 movementscheme.
 		return
 	}
 	
 	if (movementScheme == 1) {
-		if(baseDefined == true) {
-			SetDemagFieldExcludeInterp(B_demagBase, normalizedMoved[X], normalizedMoved[Y], normalizedMoved[Z], sliderGeomi, 0)
-			data.Copy(interpBaseDemagField, B_demagBase)  //save the base field so it can be used in calculations.
-		}
-		if(sliderDefined == true) {
-			SetDemagFieldExcludeInterp(B_demagSlider, -normalizedMoved[X], -normalizedMoved[Y], -normalizedMoved[Z], sliderGeomi, 1)
-		}
+		SetDemagFieldExcludeInterp(B_demagBase, normalizedMoved[X], normalizedMoved[Y], normalizedMoved[Z], sliderGeomi, 0)
+		data.Copy(interpBaseDemagField, B_demagBase)  //save the base field so it can be used in calculations.
+		
+		SetDemagFieldExcludeInterp(B_demagSlider, -normalizedMoved[X], -normalizedMoved[Y], -normalizedMoved[Z], sliderGeomi, 1)
 		cuda.Madd2(dst, B_demagSlider, B_demagBase, 1.0, 1.0)
+		
 		data.Copy(extTotalDemagField, dst)
 		return
 	}
 
 	if (movementScheme == 2) {
-		if(baseDefined == true) {
-			SetDemagFieldExcludeTotal(B_demagBase, sliderGeomi, 0)
-			SetDemagFieldWithScalarPotential(B_demagBase, normalizedMoved[X], normalizedMoved[Y], normalizedMoved[Z], sliderGeomi, 0)
-			data.Copy(interpBaseDemagField, B_demagBase)
-		}
-		if(sliderDefined == true) {
-			SetDemagFieldExcludeTotal(B_demagSlider, sliderGeomi, 1)
-			SetDemagFieldWithScalarPotential(B_demagSlider, -normalizedMoved[X], -normalizedMoved[Y], -normalizedMoved[Z], sliderGeomi, 1)	
-		}
+		SetDemagFieldExcludeTotal(B_demagBase, sliderGeomi, 0)
+		SetDemagFieldWithScalarPotential(B_demagBase, normalizedMoved[X], normalizedMoved[Y], normalizedMoved[Z], sliderGeomi, 0)
+		data.Copy(interpBaseDemagField, B_demagBase)
+		
+		SetDemagFieldExcludeTotal(B_demagSlider, sliderGeomi, 1)
+		SetDemagFieldWithScalarPotential(B_demagSlider, -normalizedMoved[X], -normalizedMoved[Y], -normalizedMoved[Z], sliderGeomi, 1)	
 		cuda.Madd2(dst, B_demagSlider, B_demagBase, 1.0, 1.0)
+		
 		data.Copy(extTotalDemagField, dst)
 		return
 	}
 	return
+}
+
+func SetExternalFieldWithMovement(dst *data.Slice, moved data.Vector) {
+	
+	if(movementScheme == 0) {
+		for c := 0; c < 3; c++ {
+			cuda.Zero1_async(extZeemanField.Comp(c))
+		}
+		B_ext.AddTo(extZeemanField)
+		B_ext.AddTo(dst)
+		return		
+	}
+
+	sliderGeomi, cycleSlider := sliderGeom.Slice()
+	if(cycleSlider) {
+		defer cuda.Recycle(sliderGeomi)
+	}
+	size := globalmesh_.Size()
+	B_extInterp := cuda.Buffer(3, size)
+	defer cuda.Recycle(B_extInterp)
+	for c := 0; c < 3; c++ {
+		cuda.Zero1_async(B_extInterp.Comp(c))
+	}
+	B_ext.AddTo(B_extInterp)
+
+	normalizedMoved := EleDiv(EleMod(moved, globalmesh_.CellSize()),globalmesh_.CellSize())
+	for i := 0; i < 3; i++ { // BW FFT
+		ext_move_cuinterp.Precondition(B_extInterp.Comp(i), globalmesh_.Size())
+		ext_move_cuinterp.InterpolateField(B_extInterp.Comp(i), globalmesh_.Size(), float32(normalizedMoved[X]), float32(normalizedMoved[Y]), float32(normalizedMoved[Z]), 0, sliderGeomi, 2)
+	}
+	data.Copy(extZeemanField, B_extInterp)
+	cuda.Madd2(dst, dst, B_extInterp, 1.0, 1.0)
 }
 
 // Sets dst to the current effective field (T). The function is extended with possible interpolation due to movement, capability of calculating the demag field via scalar potential and using eddy currents.
@@ -880,8 +923,7 @@ func SetEffectiveFieldExtended(dst, m *data.Slice, moved data.Vector, dte float6
 		CalcEddyField(dst, m, geometry.Gpu(), 0, dte, data.Vector{0.0,0.0,0.0}) //No partial movement
 		AddEddyField(dst)
 	}
-
-	B_ext.AddTo(dst)
+	SetExternalFieldWithMovement(dst, moved)
 
 	AddExchangeField(dst) // ...then add other terms
 	AddAnisotropyField(dst)
@@ -1050,6 +1092,23 @@ func GetDemagEnergyExt() float64 {
 	data.Copy(B,extTotalDemagField)
 
 	return -0.5 * float64(cellVolume()) * float64(cuda.Dot(m_Slice, B))
+}
+
+func Ext_move_removeOldZeemanEnergy() float64 {
+	return cellVolume() * dot(&M_full, B_ext)
+}
+
+func GetZeemanEnergyExt() float64 {
+	var size [3]int = globalmesh_.Size()
+	m_Slice := cuda.Buffer(3, size)
+	defer cuda.Recycle(m_Slice)
+	SetMFull(m_Slice)
+
+	B := cuda.Buffer(3, size)
+	defer cuda.Recycle(B)
+	data.Copy(B,extZeemanField)
+
+	return -1*float64(cellVolume()) * float64(cuda.Dot(m_Slice, B))
 }
 
 ////////////////////////////////////////////////////////////////////////// Moving Geometry //////////////////////////////////////////////////////////////////////////
