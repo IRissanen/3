@@ -360,16 +360,16 @@ func CalculateMagneticForce() [3]float64{
 	} else {
 		data.Copy(B_effSlice, interpBaseDemagField)
 	}
-	B_ext.AddTo(B_effSlice)
+	gpuZeeman := cuda.Buffer(3, size)
+	defer cuda.Recycle(gpuZeeman)
+	data.Copy(gpuZeeman, extZeemanField)
+	cuda.Madd2(B_effSlice, B_effSlice, gpuZeeman, 1.0, 1.0)
 	sliderGeomi, cycle := sliderGeom.Slice()
 	if(cycle) {
 		defer cuda.Recycle(sliderGeomi)
 	}
 	sliderGeomiS := sliderGeomi.HostCopy().Scalars()
 	B_effVectorField := B_effSlice.HostCopy().Vectors()
-	var BFieldCentralDifferenceX [3]float64 = [3]float64{0.0,0.0,0.0}
-	var BFieldCentralDifferenceY [3]float64 = [3]float64{0.0,0.0,0.0}
-	var BFieldCentralDifferenceZ [3]float64 = [3]float64{0.0,0.0,0.0}
 	for x:= 0; x < size[X]; x++ {
 		nx := intMod(x+1,size[X])
 		px := intMod(x-1+size[X],size[X])
@@ -380,12 +380,18 @@ func CalculateMagneticForce() [3]float64{
 		nz := intMod(z+1,size[Z])
 		pz := intMod(z-1+size[Z],size[Z])
 		if(sliderGeomiS[z][y][x] == 2) {
-			for c := 0; c < 3; c++ {
-				BFieldCentralDifferenceX[c] = float64((B_effVectorField[c][z][y][nx]-B_effVectorField[c][z][y][px])*mVectors[X][z][y][x])
-				BFieldCentralDifferenceY[c] = float64((B_effVectorField[c][z][ny][x]-B_effVectorField[c][z][py][x])*mVectors[Y][z][y][x])
-				BFieldCentralDifferenceZ[c] = float64((B_effVectorField[c][nz][y][x]-B_effVectorField[c][pz][y][x])*mVectors[Z][z][y][x])
-				totalMagneticForce[c] += BFieldCentralDifferenceX[c]*dipoleStrengthPer2HX+BFieldCentralDifferenceY[c]*dipoleStrengthPer2HY+BFieldCentralDifferenceZ[c]*dipoleStrengthPer2HZ
-			}
+				BFieldCentralDifferenceX := float64((B_effVectorField[0][z][y][nx]-B_effVectorField[0][z][y][px])*mVectors[X][z][y][x])
+				BFieldCentralDifferenceY := float64((B_effVectorField[1][z][y][nx]-B_effVectorField[1][z][y][px])*mVectors[Y][z][y][x])
+				BFieldCentralDifferenceZ := float64((B_effVectorField[2][z][y][nx]-B_effVectorField[2][z][y][px])*mVectors[Z][z][y][x])
+				totalMagneticForce[0] += BFieldCentralDifferenceX*dipoleStrengthPer2HX+BFieldCentralDifferenceY*dipoleStrengthPer2HY+BFieldCentralDifferenceZ*dipoleStrengthPer2HZ
+				BFieldCentralDifferenceX = float64((B_effVectorField[0][z][ny][x]-B_effVectorField[0][z][py][x])*mVectors[X][z][y][x])
+				BFieldCentralDifferenceY = float64((B_effVectorField[1][z][ny][x]-B_effVectorField[1][z][py][x])*mVectors[Y][z][y][x])
+				BFieldCentralDifferenceZ = float64((B_effVectorField[2][z][ny][x]-B_effVectorField[2][z][py][x])*mVectors[Z][z][y][x])
+				totalMagneticForce[1] += BFieldCentralDifferenceX*dipoleStrengthPer2HX+BFieldCentralDifferenceY*dipoleStrengthPer2HY+BFieldCentralDifferenceZ*dipoleStrengthPer2HZ
+				BFieldCentralDifferenceX = float64((B_effVectorField[0][nz][y][x]-B_effVectorField[0][pz][y][x])*mVectors[X][z][y][x])
+				BFieldCentralDifferenceY = float64((B_effVectorField[1][nz][y][x]-B_effVectorField[1][pz][y][x])*mVectors[Y][z][y][x])
+				BFieldCentralDifferenceZ = float64((B_effVectorField[2][nz][y][x]-B_effVectorField[2][pz][y][x])*mVectors[Z][z][y][x])
+				totalMagneticForce[2] += BFieldCentralDifferenceX*dipoleStrengthPer2HX+BFieldCentralDifferenceY*dipoleStrengthPer2HY+BFieldCentralDifferenceZ*dipoleStrengthPer2HZ
 		}
 	}}}
 	return totalMagneticForce
