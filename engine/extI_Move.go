@@ -160,17 +160,17 @@ func torqueFnExtended(dst, prev *data.Slice, moved data.Vector, dte float64) {
 	NEvals++
 }
 
-func StartMove(speed data.Vector, x, y, z bool) {
+func StartMove(speed data.Vector) {
 	springSystem = false
 	moving = true
 	MovingDirections = Vector(0,0,0) //Later on we just multiply speed, acceleration etc. with this vector
-	if(x == true) {
+	if(speed[X] != 0) {
 		MovingDirections[X] = 1.0
 	} 
-	if(y == true) {
+	if(speed[Y] != 0) {
 		MovingDirections[Y] = 1.0
 	} 
-	if(z == true) {
+	if(speed[Z] != 0) {
 		MovingDirections[Z] = 1.0
 	}
 	SetSpeed(speed)
@@ -906,16 +906,22 @@ func SetExternalFieldWithMovement(dst *data.Slice, moved data.Vector) {
 	}
 	size := globalmesh_.Size()
 	B_extInterp := cuda.Buffer(3, size)
+	size2 := size
+	size2[X] += 8
+	size2[Y] += 8
+	size2[Z] += 8
+	largebuffer := cuda.Buffer(3, size2)
 	defer cuda.Recycle(B_extInterp)
+	defer cuda.Recycle(largebuffer)
 	for c := 0; c < 3; c++ {
 		cuda.Zero1_async(B_extInterp.Comp(c))
 	}
 	B_ext.AddTo(B_extInterp)
-
 	normalizedMoved := EleDiv(EleMod(moved, globalmesh_.CellSize()),globalmesh_.CellSize())
 	for i := 0; i < 3; i++ { // BW FFT
-		ext_move_cuinterp.Precondition(B_extInterp.Comp(i), globalmesh_.Size())
-		ext_move_cuinterp.InterpolateField(B_extInterp.Comp(i), globalmesh_.Size(), float32(normalizedMoved[X]), float32(normalizedMoved[Y]), float32(normalizedMoved[Z]), 0, sliderGeomi, 2)
+		cuda.Ext_move_copyUnpadGeom(largebuffer.Comp(i), B_extInterp.Comp(i), size2, size, -4, 1, sliderGeomi, 2)
+		ext_move_cuinterp.Precondition(largebuffer.Comp(i), largebuffer.Size())
+		ext_move_cuinterp.InterpolateField(B_extInterp.Comp(i), globalmesh_.Size(), float32(normalizedMoved[X]), float32(normalizedMoved[Y]), float32(normalizedMoved[Z]), 4, sliderGeomi, 2)
 	}
 	data.Copy(extZeemanField, B_extInterp)
 	cuda.Madd2(dst, dst, B_extInterp, 1.0, 1.0)

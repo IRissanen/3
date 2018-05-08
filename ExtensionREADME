@@ -1,3 +1,7 @@
+##################################################################################################################################################################
+General info
+##################################################################################################################################################################
+
 Extension code files in package "engine": extI_Move.go, extI_Eddy.go and extI_ScalarPotential.go
 Extension code files in package "cuda": ext_demag_interp.go, ext_cuda_functions.go and ext_scalar_pot+eddy.go
 
@@ -6,9 +10,11 @@ and the interpolation library and the related files are in directory "cuda/ext_m
 
 Few example scripts are provided in "3/examples" directory.
 
-Some notes:
+##################################################################################################################################################################
+Compiling
+##################################################################################################################################################################
 
-Compiling the interpolation library can be done via two provided scripts, "LinuxCompile.sh" for Linux and
+(Re)compiling the interpolation library can be done via two provided scripts, "LinuxCompile.sh" for Linux and
 "wincompile.bat" for Windows. For Windows updating the path for Visual studio compiler is required.
 
 Since the interpolation library is not in the typical cuda directories, its include and library paths must
@@ -16,3 +22,94 @@ be added into the "cgoflags.go" file in directory Ext_move_cuinterp in order to 
 
 Additionally, the path for loading the dynamic library must be in the LD_LIBRARY_PATH for linux machines.
 On windows, putting the DLL in the same directory as the binary is sufficient.
+
+##################################################################################################################################################################
+A list of output quantities and method specifications for the extension:
+##################################################################################################################################################################
+
+Movement specific output quantities:
+- E_kin = slider kinetic energy (scalar)
+- E_spring = spring potential energy (scalar)
+- P_d = power dissipated due to spin relaxation (scalar)
+- MD_Base = the average change in magnetization in the base (scalar)
+- MD_Slider = the average change in magnetization in the slider (scalar)
+- D_l = location of the dragging spring (3D vector)
+- S_l = location of the slider (3D vector)
+- S_s = the speed of the slider (3D vector)
+- F_spring = The force the spring exerts on the slider (3D vector)
+- F_m = The force the base exerts on the slider (3D vector)
+- B_ib = The interpolated magnetostatic field of the base (3D vector field)
+- B_demagExt = The total interpolated magnetostatic field (3D vector field)
+- B_zeemanExt = total interpolated external field (3D vector field)
+- B_totalExt = total field, with demagnetizing field and zeeman field interpolated (3D vector field)
+- D = average absolute value of divergence per cell (scalar)
+- C = average magnitude of curl per cell (scalar)
+- Edens_demagExt - Magnetostatic energy density with the interpolated demagnetizing field (scalar field)
+- E_demagExt - Magnetostatic energy with the interpolated demagnetizing field (scalar)
+- Edens_zeemanExt - external field energy density with the interpolated external field (scalar field)
+- E_zeemanExt - external field energy with the interpolated external field (scalar)
+
+Movement specific methods:
+
+- InitMove(int) - initializes the movement environment
+¤ The argument specifies movement mode: 0 = Discrete movement (no interpolation of H_demag), 1 = Componentwise vector interpolation, 2 = scalar potential method
+¤ Also sets movement solver to RK45DP_MOVE and initializes various movement related variables
+¤ Removes the energy calculation with the non-interpolated fields, and replaces them with the calculations using interpolated fields
+
+- SetExtSolver(int) - Sets the extended solver used for movement and eddies (only Euler and RK45DP currently available)
+¤ The argument is the number of the solver (7 for Euler and 8 for RK45DP)
+
+- StartMove(data.Vector) - Starts moving the slider at a constant velocity
+¤ Vector argument specifies the velocity vector for slider movement (x,y,z).
+	
+- StopMove() - Stops moving the slider
+¤ i.e. Sets velocity to (0,0,0)
+
+- SetSpeed(data.Vector) - Sets the slider movement speed in x, y and z directions (in m/s)
+	
+- StartDragging(data.Vector speed, data.Vector ahead, bool resetPos, bool x, bool y, bool z) - Starts dragging with a spring
+¤ speed = determines the speed of the dragging spring in x,y, and z directions (in m/s)
+¤ ahead = sets the spring ahead of the slider by the given amount in x,y and z directions (in meters)
+¤ resetPos = whether the position of the dragging spring is reset to SliderLocation + ahead
+¤ x,y,z = whether the slider is allowed to move in x,y and z directions
+
+- SetSpringConstants(float64 x, float64 y, float64 z) - Set the spring constant of the dragging spring (in N/m)
+¤ x,y,z = The spring constant in the given direction
+
+- SetMass(float64) - Set the mass of the slider (in kg)
+
+- SetVelocityDragConstant(float64) - Set the drag force due to spring damping (Ns/m)
+
+- StopDragging() - Stops dragging (sets speed of the dragging spring to 0 in every direction)
+
+- PrintDebugInfo(bool) - Print additional debug info each step
+	
+- SetMovementScheme(int) - Sets movement to off (-1), discrete (0), interpolated (1) or scalar potential method (2)
+
+- Ext_Run(float64) - Run the simulation for a time (in seconds) with the extended solver
+¤ When the solver is set to an extended solver, the function Run() has the same effect. However, printing debugs only works in Ext_Run.
+
+- DefineMovingGeom(shape, int) - Sets the geometry for magnets in relative motion 
+¤ shape = The geometry to be defined as moving
+¤ 0 defines base (non-moving geometry), 1 defines slider (moving geometry)
+
+##################################################################################################################################################################
+Eddy current specific output quantities:
+- B_eddy = The eddy current field (3D vector field)
+- Edens_eddy - eddy field energy density (scalar field)
+- E_eddy - eddy field energy (scalar)
+
+
+Eddy current specific functions:
+
+InitEddy(bool m, bool ext, bool demag) - initializes the eddy current environment
+¤ m = whether m contributes to the eddy current field
+¤ ext = whether the external field contributes to the eddy current field
+¤ demag = whether the demagnetizing field contributes to the eddy current field.
+
+SetConductivity(float64) - set material conductivity in Siemens/meter
+¤ The conductivity is a uniform variable, i.e. not region-specific as of yet.
+	
+SetLaplaceIters(int) - set the number of iterations for the laplace solver for electric scalar potential
+
+##################################################################################################################################################################
