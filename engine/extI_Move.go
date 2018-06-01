@@ -890,12 +890,15 @@ func SetDemagFieldWithMovement(dst *data.Slice, moved data.Vector) {
 }
 
 func SetExternalFieldWithMovement(dst *data.Slice, moved data.Vector) {
-	
+	size := globalmesh_.Size()
 	if(movementScheme == 0) {
+		B_extInterp := cuda.Buffer(3, size)
+		defer cuda.Recycle(B_extInterp)
 		for c := 0; c < 3; c++ {
-			cuda.Zero1_async(extZeemanField.Comp(c))
+			cuda.Zero1_async(B_extInterp.Comp(c))
 		}
-		B_ext.AddTo(extZeemanField)
+		B_ext.AddTo(B_extInterp)
+		data.Copy(extZeemanField, B_extInterp)
 		B_ext.AddTo(dst)
 		return		
 	}
@@ -904,7 +907,6 @@ func SetExternalFieldWithMovement(dst *data.Slice, moved data.Vector) {
 	if(cycleSlider) {
 		defer cuda.Recycle(sliderGeomi)
 	}
-	size := globalmesh_.Size()
 	B_extInterp := cuda.Buffer(3, size)
 	size2 := size
 	size2[X] += 8
