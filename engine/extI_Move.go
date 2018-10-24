@@ -19,6 +19,11 @@ import (
 var (
 	movementScheme					= -1 			 //0 - Discrete movement, 1 - Componentwise interpolated field, 2 - Scalar potential method + Interpolation
 	moving						= false
+	cumulativeExternalFieldVector 			= Vector(0.0,0.0,0.0)
+	magChangeThreshold				= float32(0.0)
+	externalFieldCumulation				= false
+	externalFieldRate				= 0.0
+	externalFieldDecayRate				= 0.0
 	sliderLocation  				= Vector(0.0,0.0,0.0) //The location of the slider. When wrapping through a periodic boundary, modulo is taken from this.
 	sliderSpeed 					= Vector(0.0,0.0,0.0)
 	sliderAccl 				 	= Vector(0.0,0.0,0.0)
@@ -60,6 +65,7 @@ var (
 
 func init() {
 	DeclFunc("InitMove", initMove, "initializes the movement environment, also sets movement solver to RK45DP_MOVE")
+	DeclFunc("InitExtDatas", initExtDatas, "initializes some fields etc. for the extension without changing solver and initializing movement")
 	DeclFunc("SetExtSolver", SetExtendedSolver, "Sets the solver used for extensions (for movement and eddies only Euler and RK45DP currently available)")
 	DeclFunc("StartMove", StartMove, "Starts moving the slider")
 	DeclFunc("StopMove", StopMove, "Stops moving the slider")
@@ -74,22 +80,27 @@ func init() {
 	DeclFunc("Ext_Run", Ext_Run, "Run the simulation for a time in seconds with the extended solver")
 	DeclFunc("DefineMovingGeom", DefineMovingGeom, "Sets the geometry for magnets in relative motion (0 for base, 1 for slider)")
 	DeclFunc("Invert movement", InvertMovement, "Makes it so that the base moves instead of the slider") //TODO: implement (idea: Conveyor belt type of movement)
+	DeclFunc("SetExternalFieldCumulation", SetExternalFieldCumulation, "Makes it so that the external field accumulates when power dissipation is under given threshold")
 	baseGeom.baseinit()
 	sliderGeom.sliderinit()
 }
 
-func initMove(scheme int) {
+func initExtDatas() {
 	interpBaseDemagField = data.NewSlice(3, globalmesh_.Size())
 	extTotalDemagField = data.NewSlice(3, globalmesh_.Size())
 	totalExtField = data.NewSlice(3, globalmesh_.Size())
 	extZeemanField = data.NewSlice(3, globalmesh_.Size())
 	B_arbitrary = data.NewSlice(3, globalmesh_.Size())
 	cumulativeMagChange = cuda.NewSlice(1, globalmesh_.Size())
+}
+
+func initMove(scheme int) {
 	registerEnergy(GetDemagEnergyExt, AddEdens_demagExt)
 	registerEnergy(Ext_move_removeOldDemagEnergy, removeOldEdens_demag) //TODO: just remove the original energy term from the list instead of this hack
 	registerEnergy(GetZeemanEnergyExt, AddEdens_zeemanExt)
 	registerEnergy(Ext_move_removeOldZeemanEnergy, removeOldEdens_zeeman) //TODO: just remove the original energy term from the list instead of this hack
-
+	
+	initExtDatas()
 	SetExtendedSolver(8) //Default to extended RK45DP
 	SetMovementScheme(scheme) //0 - Discrete movement, 1 - Componentwise interpolated field, 2 - Scalar potential method + Interpolation
 }
@@ -180,6 +191,25 @@ func SetMovementScheme(s int) {
 	movementScheme = s
 }
 
+func SetExternalFieldCumulation(val bool, rate float64, decayrate float64, threshold float64) {
+	externalFieldCumulation = val
+	externalFieldRate = rate
+	externalFieldDecayRate = decayrate
+	magChangeThreshold = float32(threshold)
+}
+
+func IncreaseExternalField(dt float64, plus bool) {
+	if(plus) {
+		cumulativeExternalFieldVector[Z] += dt*externalFieldRate
+	} else {
+		cumulativeExternalFieldVector[Z] -= dt*externalFieldDecayRate
+	}
+	if(cumulativeExternalFieldVector[Z] < 0) {
+		cumulativeExternalFieldVector[Z] = 0
+	}
+	B_ext.Set(cumulativeExternalFieldVector)
+}
+
 func StopMove() {
 	moving = false
 	SetSpeed(Vector(0,0,0))
@@ -250,12 +280,28 @@ func SaveSpringForce() []float64 {
 }
 
 func step_move(output bool) {
+	m := M.Buffer()
+	size := m.Size()
+	m0 := cuda.Buffer(3, size)
+	defer cuda.Recycle(m0)
+	data.Copy(m0, m)
 	start := time.Now()
 	oldNUndone := NUndone
 	stepper.Step()
 	success := true
 	if oldNUndone != NUndone {
 		success = false
+	}
+	if(success) {
+		updateCumulativeMagnetizationChange(m0, m)
+		if(externalFieldCumulation && float32(CalculateDissipatedPower()) <= magChangeThreshold) {
+			IncreaseExternalField(Dt_si, true)		
+		} else {
+			IncreaseExternalField(Dt_si, false)		
+		}
+		if(UseEddy) {
+			StoreFieldsAndMagForEddy(m, sliderLocation)
+		}
 	}
 	for _, f := range postStep {
 		f()
@@ -279,6 +325,14 @@ func step_move(output bool) {
 	fmt.Println("average divergence: ", CalculateDivergences())
 	fmt.Println("average curl: ", CalculateCurls())
 	util.Log(Time)
+	}
+}
+
+func magnetNCells() float32 {
+	if geometry.Gpu().IsNil() {
+		return float32(Mesh().NCell())	
+	} else {
+		return (cuda.Sum(geometry.Gpu()))
 	}
 }
 
@@ -437,7 +491,7 @@ func SaveBaseMDiff() float64 {
 	for x:= 0; x < size[X]; x++ {
 		for y:= 0; y < size[Y]; y++ {
 			for z:= 0; z < size[Z]; z++ {
-				if(baseGeomiS[z][y][x] == 2) {
+				if(baseGeomiS[z][y][x] == 2 || baseDefined == false) {
 					total += float64(cmcHostS[z][y][x])
 					cmcHostS[z][y][x] = 0
 				} 
@@ -445,6 +499,9 @@ func SaveBaseMDiff() float64 {
 		}
 	}
 	data.Copy(cumulativeMagChange, cmcHost)
+	if(baseDefined == false) {
+		return total/float64(magnetNCells())		
+	}
 	return total/(float64(nBaseCells))
 }
 
@@ -506,6 +563,9 @@ func CalculateDissipatedPower() float64 {
 	size :=  globalmesh_.Size()
 	msat := Msat.MSlice()
 	alpha := Alpha.MSlice()
+	defer alpha.Recycle()
+	defer msat.Recycle()
+
 
 	powers := cuda.Buffer(1, size)
 	defer cuda.Recycle(powers)
@@ -513,8 +573,11 @@ func CalculateDissipatedPower() float64 {
 	defer cuda.Recycle(B_total)
 
 	cuda.Zero1_async(powers)
-
-	SetEffectiveFieldExtended(B_total, M.Buffer(), sliderLocation, Dt_si)
+	if(movementScheme >= 0) {
+		SetEffectiveFieldExtended(B_total, M.Buffer(), sliderLocation, Dt_si)
+	} else {
+		SetEffectiveField(B_total)	
+	}
 	cuda.Ext_move_dissipatedPowers(powers, M.Buffer(), B_total, alpha, msat, cellVolume(), GammaLL, size)
 	totalPower := float64(cuda.Sum(powers))
 	return totalPower
@@ -713,7 +776,6 @@ func (rk *RK45DP_EXT) Step() {
 		setMaxTorque(k7)
 		NSteps++
 		Time = t0 + Dt_si
-		updateCumulativeMagnetizationChange(m0, m)
 		if(moving) {
 			OldSliderLocationCells := Floor(EleDiv(sliderLocation,globalmesh_.CellSize()))
 			sliderLocation = sliderTempLocation
@@ -729,9 +791,6 @@ func (rk *RK45DP_EXT) Step() {
 				torqueFnExtended(k7, m, sliderTempLocation, Dt_si) //If we moved a whole cell, recalculate these, likely more accurate
 				setMaxTorque(k7)
 			}
-		}
-		if(UseEddy) {
-			StoreFieldsAndMagForEddy(m, sliderLocation)
 		}
 		adaptDt(math.Pow(MaxErr/err, 1./5.))
 		data.Copy(rk.k1, k7) // FSAL
