@@ -198,11 +198,11 @@ func SetExternalFieldCumulation(val bool, rate float64, decayrate float64, thres
 	magChangeThreshold = float32(threshold)
 }
 
-func IncreaseExternalField(dt float64, plus bool) {
+func IncreaseExternalField(dt float64, plus bool, power float64) {
 	if(plus) {
 		cumulativeExternalFieldVector[Z] += dt*externalFieldRate
 	} else {
-		cumulativeExternalFieldVector[Z] -= dt*externalFieldDecayRate
+		cumulativeExternalFieldVector[Z] -= dt*externalFieldDecayRate*power
 	}
 	if(cumulativeExternalFieldVector[Z] < 0) {
 		cumulativeExternalFieldVector[Z] = 0
@@ -294,10 +294,13 @@ func step_move(output bool) {
 	}
 	if(success) {
 		updateCumulativeMagnetizationChange(m0, m)
-		if(externalFieldCumulation && float32(CalculateDissipatedPower()) <= magChangeThreshold) {
-			IncreaseExternalField(Dt_si, true)		
-		} else {
-			IncreaseExternalField(Dt_si, false)		
+		if(externalFieldCumulation) {
+			power := CalculateDissipatedPower()
+			if(float32(power) <= magChangeThreshold) {
+				IncreaseExternalField(Dt_si, true, power)		
+			} else {
+				IncreaseExternalField(Dt_si, false, power)		
+			}
 		}
 		if(UseEddy) {
 			StoreFieldsAndMagForEddy(m, sliderLocation)
